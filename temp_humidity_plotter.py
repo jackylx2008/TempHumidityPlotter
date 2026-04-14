@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import csv
 import logging
+import math
 import os
 import re
 from datetime import datetime, timedelta
+from datetime import time as dt_time
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +86,9 @@ def load_app_config(config_path: Path) -> dict[str, Any]:
         "plot_format": str(app.get("plot_format", "png")).lstrip(".").lower(),
         "range_start": str(app.get("range_start", "")).strip(),
         "range_end": str(app.get("range_end", "")).strip(),
+        "max_span_days": str(app.get("max_span_days", "")).strip(),
+        "highlight_start_time": str(app.get("highlight_start_time", "")).strip(),
+        "highlight_end_time": str(app.get("highlight_end_time", "")).strip(),
     }
 
 
@@ -190,6 +195,41 @@ def resolve_time_range(config: dict[str, Any]) -> tuple[datetime | None, datetim
             f"range_start must be earlier than or equal to range_end: {range_start} > {range_end}"
         )
     return range_start, range_end
+
+
+def resolve_max_span_days(config: dict[str, Any]) -> int | None:
+    raw_value = config["max_span_days"]
+    if not raw_value:
+        return None
+    try:
+        max_span_days = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"max_span_days must be a number: {raw_value}") from exc
+    if max_span_days <= 0:
+        raise ValueError(f"max_span_days must be greater than 0: {raw_value}")
+    return math.ceil(max_span_days)
+
+
+def parse_time_of_day(value: str) -> dt_time:
+    text = value.strip()
+    for time_format in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(text, time_format).time()
+        except ValueError:
+            continue
+    raise ValueError(f"Unsupported time-of-day format: {value}")
+
+
+def resolve_highlight_time_range(
+    config: dict[str, Any],
+) -> tuple[dt_time | None, dt_time | None]:
+    start_raw = config["highlight_start_time"]
+    end_raw = config["highlight_end_time"]
+    if not start_raw and not end_raw:
+        return None, None
+    if not start_raw or not end_raw:
+        raise ValueError("highlight_start_time and highlight_end_time must be set together")
+    return parse_time_of_day(start_raw), parse_time_of_day(end_raw)
 
 
 def add_diagnostic(
@@ -487,11 +527,55 @@ def build_output_file(output_dir: Path, labels: list[str], plot_format: str) -> 
     return output_dir / filename
 
 
+def build_paged_output_file(output_path: Path, page_index: int, page_count: int) -> Path:
+    if page_count <= 1:
+        return output_path
+    return output_path.with_name(
+        f"{output_path.stem}_p{page_index + 1:02d}{output_path.suffix}"
+    )
+
+
+def split_series_into_pages(
+    series_list: list[list[tuple[datetime, float]]],
+    max_span_days: int | None,
+) -> list[list[list[tuple[datetime, float]]]]:
+    if not max_span_days:
+        return [series_list]
+
+    all_times = [item[0] for series in series_list for item in series]
+    if not all_times:
+        return [series_list]
+
+    min_time = min(all_times)
+    max_time = max(all_times)
+    min_date = min_time.date()
+    max_date = max_time.date()
+    total_days = (max_date - min_date).days + 1
+    if total_days <= max_span_days:
+        return [series_list]
+
+    pages: list[list[list[tuple[datetime, float]]]] = []
+    page_start_date = min_date
+    while page_start_date <= max_date:
+        page_end_date = page_start_date + timedelta(days=max_span_days)
+        page_start = datetime.combine(page_start_date, datetime.min.time())
+        page_end = datetime.combine(page_end_date, datetime.min.time())
+        page_series_list = [
+            [item for item in series if page_start <= item[0] < page_end]
+            for series in series_list
+        ]
+        if any(page_series for page_series in page_series_list):
+            pages.append(page_series_list)
+        page_start_date = page_end_date
+    return pages or [series_list]
+
+
 def plot_temperature_comparison(
     series_list: list[list[tuple[datetime, float]]],
     labels: list[str],
     output_path: Path,
     plot_format: str,
+    highlight_time_range: tuple[dt_time | None, dt_time | None],
 ) -> None:
     plt.rcParams["font.sans-serif"] = [
         "Microsoft YaHei",
@@ -505,6 +589,31 @@ def plot_temperature_comparison(
     figure, axis = plt.subplots(figsize=(14, 7))
     colors = ["#D55E00", "#0072B2"]
 
+    all_times = [item[0] for series in series_list for item in series]
+    if all_times:
+        start_time = min(all_times)
+        end_time = max(all_times)
+        highlight_start, highlight_end = highlight_time_range
+        if highlight_start and highlight_end:
+            current_date = start_time.date()
+            end_date = end_time.date()
+            while current_date <= end_date:
+                span_start = datetime.combine(current_date, highlight_start)
+                span_end = datetime.combine(current_date, highlight_end)
+                if span_end <= span_start:
+                    span_end += timedelta(days=1)
+                visible_start = max(span_start, start_time)
+                visible_end = min(span_end, end_time)
+                if visible_start < visible_end:
+                    axis.axvspan(
+                        visible_start,
+                        visible_end,
+                        color="#B9DFFF",
+                        alpha=0.5,
+                        zorder=-2,
+                    )
+                current_date += timedelta(days=1)
+
     for index, series in enumerate(series_list):
         x_values = [item[0] for item in series]
         y_values = [item[1] for item in series]
@@ -514,6 +623,7 @@ def plot_temperature_comparison(
             linewidth=2.0,
             color=colors[index % len(colors)],
             label=labels[index],
+            zorder=3,
         )
 
     axis.set_xlabel("\u65f6\u95f4", fontsize=12)
@@ -530,6 +640,7 @@ def plot_temperature_comparison(
         color="#A0A0A0",
         alpha=0.55,
         linewidth=0.9,
+        zorder=0,
     )
     axis.grid(
         True,
@@ -539,12 +650,10 @@ def plot_temperature_comparison(
         color="#B5B5B5",
         alpha=0.45,
         linewidth=0.8,
+        zorder=0,
     )
 
-    all_times = [item[0] for series in series_list for item in series]
     if all_times:
-        start_time = min(all_times)
-        end_time = max(all_times)
         midnight = datetime.combine(start_time.date(), datetime.min.time())
         if midnight < start_time:
             midnight += timedelta(days=1)
@@ -555,7 +664,7 @@ def plot_temperature_comparison(
                 linestyle="--",
                 linewidth=1.3,
                 alpha=0.9,
-                zorder=0,
+                zorder=1,
             )
             midnight += timedelta(days=1)
     axis.legend(
@@ -577,12 +686,22 @@ def main() -> int:
     logger = get_logger(__name__)
     diagnostics: list[DiagnosticEntry] = []
     range_start, range_end = resolve_time_range(config)
+    max_span_days = resolve_max_span_days(config)
+    highlight_time_range = resolve_highlight_time_range(config)
     output_dir = Path(config["output_dir"])
     try:
         input_files = resolve_input_files(config)
         logger.info("Selected input files: %s", [str(path) for path in input_files])
         if range_start or range_end:
             logger.info("Applying time range filter: start=%s, end=%s", range_start, range_end)
+        if max_span_days:
+            logger.info("Applying max page span: %s days", max_span_days)
+        if highlight_time_range[0] and highlight_time_range[1]:
+            logger.info(
+                "Applying daily highlight range: %s to %s",
+                highlight_time_range[0],
+                highlight_time_range[1],
+            )
 
         series_list = [
             filter_series_by_time_range(
@@ -595,12 +714,28 @@ def main() -> int:
         ]
         labels = [extract_legend_label(path) for path in input_files]
         output_path = build_output_file(output_dir, labels, config["plot_format"])
+        paged_series_list = split_series_into_pages(series_list, max_span_days)
+        output_paths: list[Path] = []
+        for page_index, page_series_list in enumerate(paged_series_list):
+            page_output_path = build_paged_output_file(
+                output_path,
+                page_index,
+                len(paged_series_list),
+            )
+            plot_temperature_comparison(
+                page_series_list,
+                labels,
+                page_output_path,
+                config["plot_format"],
+                highlight_time_range,
+            )
+            output_paths.append(page_output_path)
 
-        plot_temperature_comparison(series_list, labels, output_path, config["plot_format"])
         report_path = write_diagnostics_report(diagnostics, output_dir)
         logger.info("Diagnostics report generated: %s", report_path.resolve())
-        logger.info("Plot generated: %s", output_path.resolve())
-        print(str(output_path.resolve()))
+        for page_output_path in output_paths:
+            logger.info("Plot generated: %s", page_output_path.resolve())
+            print(str(page_output_path.resolve()))
         return 0
     except Exception as exc:
         add_diagnostic(diagnostics, "ERROR", "__main__", None, "", str(exc))

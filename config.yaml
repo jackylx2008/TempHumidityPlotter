@@ -7,4 +7,7 @@ app:
   input_file: ${INPUT_TARGET_FILE:-}
   range_start: ${RANGE_START:-}
   range_end: ${RANGE_END:-}
+  max_span_days: ${MAX_SPAN_DAYS:-}
+  highlight_start_time: ${HIGHLIGHT_START_TIME:-}
+  highlight_end_time: ${HIGHLIGHT_END_TIME:-}
   plot_format: ${PLOT_FORMAT:-png}
