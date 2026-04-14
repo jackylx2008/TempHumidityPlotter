@@ -10,16 +10,16 @@ import re
 from datetime import datetime, timedelta
 from datetime import time as dt_time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
-import matplotlib
 import matplotlib.dates as mdates
 import yaml
 
 from logging_config import get_logger, setup_logger
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 REQUIRED_COLUMNS = {"datetime", "temperature_C", "humidity_RH"}
@@ -577,6 +577,9 @@ def plot_temperature_comparison(
     plot_format: str,
     highlight_time_range: tuple[dt_time | None, dt_time | None],
 ) -> None:
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    import matplotlib.pyplot as plt
+
     plt.rcParams["font.sans-serif"] = [
         "Microsoft YaHei",
         "SimHei",
@@ -587,6 +590,8 @@ def plot_temperature_comparison(
     plt.rcParams["axes.unicode_minus"] = False
 
     figure, axis = plt.subplots(figsize=(14, 7))
+    figure = cast("Figure", figure)
+    axis = cast("Axes", axis)
     colors = ["#D55E00", "#0072B2"]
 
     all_times = [item[0] for series in series_list for item in series]
@@ -606,8 +611,8 @@ def plot_temperature_comparison(
                 visible_end = min(span_end, end_time)
                 if visible_start < visible_end:
                     axis.axvspan(
-                        visible_start,
-                        visible_end,
+                        float(mdates.date2num(visible_start)),
+                        float(mdates.date2num(visible_end)),
                         color="#B9DFFF",
                         alpha=0.5,
                         zorder=-2,
@@ -615,7 +620,7 @@ def plot_temperature_comparison(
                 current_date += timedelta(days=1)
 
     for index, series in enumerate(series_list):
-        x_values = [item[0] for item in series]
+        x_values = [float(mdates.date2num(item[0])) for item in series]
         y_values = [item[1] for item in series]
         axis.plot(
             x_values,
@@ -654,12 +659,14 @@ def plot_temperature_comparison(
     )
 
     if all_times:
+        start_time = min(all_times)
+        end_time = max(all_times)
         midnight = datetime.combine(start_time.date(), datetime.min.time())
         if midnight < start_time:
             midnight += timedelta(days=1)
         while midnight <= end_time:
             axis.axvline(
-                midnight,
+                float(mdates.date2num(midnight)),
                 color="#5C5C5C",
                 linestyle="--",
                 linewidth=1.3,
