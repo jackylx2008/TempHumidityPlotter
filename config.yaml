@@ -1,0 +1,10 @@
+app:
+  log_level: ${LOG_LEVEL:-INFO}
+  input_path: ${INPUT_FILE:-./input}
+  output_dir: ${OUTPUT_PATH:-./output}
+  input_file_type: ${INPUT_FILE_TYPE:-auto}
+  input_mode: ${INPUT_MODE:-batch}
+  input_file: ${INPUT_TARGET_FILE:-}
+  range_start: ${RANGE_START:-}
+  range_end: ${RANGE_END:-}
+  plot_format: ${PLOT_FORMAT:-png}
