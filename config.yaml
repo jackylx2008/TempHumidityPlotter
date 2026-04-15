@@ -5,6 +5,7 @@ app:
   input_file_type: ${INPUT_FILE_TYPE:-auto}
   input_mode: ${INPUT_MODE:-batch}
   input_file: ${INPUT_TARGET_FILE:-}
+  outdoor_temp_humidity_file: ${OUTDOOR_TEMP_HUMIDITY_FILE:-}
   range_start: ${RANGE_START:-}
   range_end: ${RANGE_END:-}
   max_span_days: ${MAX_SPAN_DAYS:-}

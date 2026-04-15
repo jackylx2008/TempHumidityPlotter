@@ -32,6 +32,7 @@ Example `common.env`:
 ```env
 LOG_LEVEL=INFO
 INPUT_FILE=D:\CloudStation\国会二期\02 备忘录\2026-04-013_主体抖音新风竖井数据
+OUTDOOR_TEMP_HUMIDITY_FILE=D:\CloudStation\国会二期\02 备忘录\outdoor_temp_humidity.csv
 OUTPUT_PATH=./output
 INPUT_FILE_TYPE=auto
 RANGE_START=2020-04-08 15:55:00
@@ -49,6 +50,7 @@ Key options:
 | `INPUT_FILE_TYPE` | `auto`, `csv`, or `txt` |
 | `INPUT_MODE` | `batch` or `single` |
 | `INPUT_TARGET_FILE` | Two explicit files in `single` mode |
+| `OUTDOOR_TEMP_HUMIDITY_FILE` | Optional outdoor temperature/humidity source file path |
 | `RANGE_START` | Optional start time |
 | `RANGE_END` | Optional end time |
 | `MAX_SPAN_DAYS` | Max natural days per image page |
