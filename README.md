@@ -32,8 +32,8 @@ Example `common.env`:
 
 ```env
 LOG_LEVEL=INFO
-INPUT_FILE=D:\CloudStation\国会二期\02 备忘录\2026-04-13_主体抖音新风竖井数据
-OUTDOOR_TEMP_HUMIDITY_FILE=D:\CloudStation\国会二期\02 备忘录\outdoor_temp_humidity.csv
+INPUT_FILE=D:\Data\TempHumidity\indoor_reports
+OUTDOOR_TEMP_HUMIDITY_FILE=D:\Data\TempHumidity\outdoor_trend.csv
 OUTPUT_PATH=./output
 INPUT_FILE_TYPE=auto
 RANGE_START=2020-04-08 15:55:00
