@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from pathlib import Path
 
 from logging_config import get_logger, setup_logger
@@ -8,6 +9,7 @@ from logging_config import get_logger, setup_logger
 from .config import (
     load_app_config,
     parse_log_level,
+    resolve_atmospheric_pressure_kpa,
     resolve_highlight_time_range,
     resolve_max_span_days,
     resolve_time_range,
@@ -23,7 +25,7 @@ from .plotting import (
     build_output_file,
     build_paged_output_file,
     extract_legend_label,
-    plot_temperature_comparison,
+    plot_metric_comparison,
     split_series_into_pages,
 )
 
@@ -34,6 +36,7 @@ def main() -> int:
     logger = get_logger(__name__)
     diagnostics: list[DiagnosticEntry] = []
     range_start, range_end = resolve_time_range(config)
+    atmospheric_pressure_kpa = resolve_atmospheric_pressure_kpa(config)
     max_span_days = resolve_max_span_days(config)
     highlight_time_range = resolve_highlight_time_range(config)
     output_dir = Path(config["output_dir"])
@@ -128,22 +131,48 @@ def main() -> int:
         ]
         if len(series_list) < 2:
             raise ValueError("At least 2 data series are required after filtering.")
-        output_path = build_output_file(output_dir, labels, config["plot_format"])
         paged_series_list = split_series_into_pages(series_list, max_span_days)
-
         output_paths: list[Path] = []
-        for page_index, page_series_list in enumerate(paged_series_list):
-            page_output_path = build_paged_output_file(
-                output_path, page_index, len(paged_series_list)
-            )
-            plot_temperature_comparison(
-                page_series_list,
+
+        for metric_name, metric_getter, y_label in [
+            ("temperature", lambda item: item.temperature_C, "温度 (°C)"),
+            ("humidity", lambda item: item.humidity_RH, "湿度 (%RH)"),
+            (
+                "enthalpy",
+                lambda item: calculate_enthalpy_kj_per_kg_dry_air(item, atmospheric_pressure_kpa),
+                "焓值 (kJ/kg干空气)",
+            ),
+        ]:
+            output_path = build_output_file(
+                output_dir,
                 labels,
-                page_output_path,
                 config["plot_format"],
-                highlight_time_range,
+                metric_name,
             )
-            output_paths.append(page_output_path)
+            metric_output_paths: list[Path] = []
+            for page_index, page_series_list in enumerate(paged_series_list):
+                page_output_path = build_paged_output_file(
+                    output_path, page_index, len(paged_series_list)
+                )
+                plot_metric_comparison(
+                    page_series_list,
+                    labels,
+                    page_output_path,
+                    config["plot_format"],
+                    highlight_time_range,
+                    metric_getter,
+                    y_label,
+                )
+                metric_output_paths.append(page_output_path)
+                output_paths.append(page_output_path)
+
+            merged_output_path = _merge_metric_pdf_outputs(
+                metric_output_paths,
+                output_path,
+                config["plot_format"],
+            )
+            if merged_output_path is not None:
+                output_paths.append(merged_output_path)
 
         report_path = write_diagnostics_report(diagnostics, output_dir)
         logger.info("Diagnostics report generated: %s", report_path.resolve())
@@ -192,3 +221,41 @@ def _project_series_onto_filter_range(
 
     projected.sort(key=lambda item: item.timestamp)
     return projected
+
+
+def calculate_enthalpy_kj_per_kg_dry_air(
+    record: NormalizedRecord,
+    atmospheric_pressure_kpa: float,
+) -> float:
+    saturation_pressure_kpa = 0.61078 * math.exp(
+        17.2694 * record.temperature_C / (record.temperature_C + 237.3)
+    )
+    relative_humidity = record.humidity_RH / 100.0
+    vapor_pressure_kpa = relative_humidity * saturation_pressure_kpa
+    humidity_ratio = 0.62198 * vapor_pressure_kpa / (atmospheric_pressure_kpa - vapor_pressure_kpa)
+    return 1.006 * record.temperature_C + humidity_ratio * (2501 + 1.86 * record.temperature_C)
+
+
+def _merge_metric_pdf_outputs(
+    metric_output_paths: list[Path],
+    merged_output_path: Path,
+    plot_format: str,
+) -> Path | None:
+    if plot_format.lower() != "pdf" or len(metric_output_paths) <= 1:
+        return None
+
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for path in metric_output_paths:
+        writer.append(str(path))
+
+    with merged_output_path.open("wb") as file_handle:
+        writer.write(file_handle)
+    writer.close()
+
+    for path in metric_output_paths:
+        if path != merged_output_path and path.exists():
+            path.unlink()
+
+    return merged_output_path

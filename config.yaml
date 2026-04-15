@@ -8,6 +8,7 @@ app:
   outdoor_temp_humidity_file: ${OUTDOOR_TEMP_HUMIDITY_FILE:-}
   range_start: ${RANGE_START:-}
   range_end: ${RANGE_END:-}
+  atmospheric_pressure_kpa: ${ATMOSPHERIC_PRESSURE_KPA:-101.325}
   max_span_days: ${MAX_SPAN_DAYS:-}
   highlight_start_time: ${HIGHLIGHT_START_TIME:-}
   highlight_end_time: ${HIGHLIGHT_END_TIME:-}

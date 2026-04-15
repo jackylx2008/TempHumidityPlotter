@@ -33,16 +33,24 @@ def safe_name_fragment(text: str) -> str:
     return cleaned.strip("-") or "series"
 
 
-def build_output_file(output_dir: Path, labels: list[str], plot_format: str) -> Path:
+def build_output_file(
+    output_dir: Path,
+    labels: list[str],
+    plot_format: str,
+    metric_name: str,
+) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     if len(labels) < 2:
         only = safe_name_fragment(labels[0]) if labels else "series"
-        return output_dir / f"temperature_compare_{only}.{plot_format}"
+        return output_dir / f"{metric_name}_compare_{only}.{plot_format}"
     left = safe_name_fragment(labels[0])
     right = safe_name_fragment(labels[1])
     if len(labels) > 2:
-        return output_dir / f"temperature_compare_{left}_vs_{right}_plus_{len(labels) - 2}.{plot_format}"
-    return output_dir / f"temperature_compare_{left}_vs_{right}.{plot_format}"
+        return (
+            output_dir
+            / f"{metric_name}_compare_{left}_vs_{right}_plus_{len(labels) - 2}.{plot_format}"
+        )
+    return output_dir / f"{metric_name}_compare_{left}_vs_{right}.{plot_format}"
 
 
 def build_paged_output_file(output_path: Path, page_index: int, page_count: int) -> Path:
@@ -84,12 +92,14 @@ def split_series_into_pages(
     return pages or [series_list]
 
 
-def plot_temperature_comparison(
+def plot_metric_comparison(
     series_list: list[list[NormalizedRecord]],
     labels: list[str],
     output_path: Path,
     plot_format: str,
     highlight_time_range: tuple[dt_time | None, dt_time | None],
+    metric_getter,
+    y_label: str,
 ) -> None:
     os.environ.setdefault("MPLBACKEND", "Agg")
     import matplotlib.pyplot as plt
@@ -114,7 +124,7 @@ def plot_temperature_comparison(
 
     for index, series in enumerate(series_list):
         x_values = [float(mdates.date2num(item.timestamp)) for item in series]
-        y_values = [item.temperature_C for item in series]
+        y_values = [metric_getter(item) for item in series]
         axis.plot(
             x_values,
             y_values,
@@ -124,9 +134,10 @@ def plot_temperature_comparison(
             zorder=3,
         )
 
-    _configure_axis(axis)
+    _configure_axis(axis, y_label)
     if all_times:
         _draw_midnight_lines(axis, min(all_times), max(all_times))
+        _draw_date_weekday_labels(axis, min(all_times), max(all_times))
     axis.legend(
         loc="lower center",
         bbox_to_anchor=(0.5, 1.02),
@@ -134,7 +145,7 @@ def plot_temperature_comparison(
         frameon=False,
         fontsize=11,
     )
-    figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
+    figure.tight_layout(rect=(0.0, 0.06, 1.0, 0.96))
     figure.savefig(output_path, format=plot_format, dpi=180)
     plt.close(figure)
 
@@ -168,9 +179,9 @@ def _draw_highlight_spans(
         current_date += timedelta(days=1)
 
 
-def _configure_axis(axis: "Axes") -> None:
+def _configure_axis(axis: "Axes", y_label: str) -> None:
     axis.set_xlabel("时间", fontsize=12)
-    axis.set_ylabel("温度 (°C)", fontsize=12)
+    axis.set_ylabel(y_label, fontsize=12)
     axis.xaxis.set_major_locator(mdates.HourLocator(byhour=range(0, 24, 4)))
     axis.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
     axis.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
@@ -211,3 +222,32 @@ def _draw_midnight_lines(axis: "Axes", start_time: datetime, end_time: datetime)
             zorder=1,
         )
         midnight += timedelta(days=1)
+
+
+def _draw_date_weekday_labels(axis: "Axes", start_time: datetime, end_time: datetime) -> None:
+    weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    label_positions: list[float] = []
+    label_texts: list[str] = []
+
+    current_date = start_time.date()
+    end_date = end_time.date()
+    while current_date <= end_date:
+        day_start = datetime.combine(current_date, datetime.min.time())
+        day_end = day_start + timedelta(days=1)
+        visible_start = max(day_start, start_time)
+        visible_end = min(day_end, end_time)
+        if visible_start < visible_end:
+            midpoint = visible_start + (visible_end - visible_start) / 2
+            label_positions.append(float(mdates.date2num(midpoint)))
+            label_texts.append(
+                f"{current_date:%m-%d} {weekday_names[current_date.weekday()]}"
+            )
+        current_date += timedelta(days=1)
+
+    if not label_positions:
+        return
+
+    secondary_axis = axis.secondary_xaxis(location=-0.18)
+    secondary_axis.set_xticks(label_positions, label_texts)
+    secondary_axis.tick_params(axis="x", length=0, pad=2, labelsize=10)
+    secondary_axis.spines["bottom"].set_visible(False)

@@ -67,6 +67,7 @@ def load_app_config(config_path: Path) -> dict[str, Any]:
         "plot_format": str(app.get("plot_format", "png")).lstrip(".").lower(),
         "range_start": str(app.get("range_start", "")).strip(),
         "range_end": str(app.get("range_end", "")).strip(),
+        "atmospheric_pressure_kpa": str(app.get("atmospheric_pressure_kpa", "101.325")).strip(),
         "max_span_days": str(app.get("max_span_days", "")).strip(),
         "highlight_start_time": str(app.get("highlight_start_time", "")).strip(),
         "highlight_end_time": str(app.get("highlight_end_time", "")).strip(),
@@ -122,6 +123,17 @@ def resolve_max_span_days(config: dict[str, Any]) -> int | None:
     if max_span_days <= 0:
         raise ValueError(f"max_span_days must be greater than 0: {raw_value}")
     return math.ceil(max_span_days)
+
+
+def resolve_atmospheric_pressure_kpa(config: dict[str, Any]) -> float:
+    raw_value = config["atmospheric_pressure_kpa"]
+    try:
+        pressure_kpa = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"atmospheric_pressure_kpa must be a number: {raw_value}") from exc
+    if pressure_kpa <= 0:
+        raise ValueError(f"atmospheric_pressure_kpa must be greater than 0: {raw_value}")
+    return pressure_kpa
 
 
 def parse_time_of_day(value: str) -> dt_time:
